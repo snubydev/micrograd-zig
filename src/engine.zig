@@ -43,7 +43,7 @@ pub const Value = struct {
     grad: f32 = 0.0,
     label: Label = Label.init("undefined"), //FixedString, // [12]u8 = [_]u8{0} ** 12,
 
-    backward: ?*fn () void = null,
+    _backward: ?*const fn (self: *const Value) void = null,
 
     prev: [2]?*Value = [_]?*Value{ null, null },
 
@@ -54,7 +54,7 @@ pub const Value = struct {
     }
 
     pub fn printL(self: Value) void {
-        std.debug.print("Value({s}: data={d})\n", .{ self.label.slice(), self.data });
+        std.debug.print("Value({s}: data={d}, grad={d})\n", .{ self.label.slice(), self.data, self.grad });
     }
 
     pub fn printMore(self: Value) void {
@@ -68,13 +68,47 @@ pub const Value = struct {
         std.debug.print(")\n", .{});
     }
 
+    fn _backward_add(self: *const Value) void {
+        self.prev[0].?.grad += 1.0 * self.grad;
+        self.prev[1].?.grad += 1.0 * self.grad;
+    }
+
+    fn _backward_mul(self: *const Value) void {
+        self.prev[0].?.grad += self.prev[1].?.data * self.grad;
+        self.prev[1].?.grad += self.prev[0].?.data * self.grad;
+    }
+
     pub fn add(self: *Value, other: *Value, label: []const u8) Value {
         return Value{
             .data = self.data + other.data,
             .prev = .{ self, other },
             .op = .add,
             .label = Label.init(label),
+            ._backward = _backward_add,
         };
+    }
+
+    pub fn mul(self: *Value, other: *Value, label: []const u8) Value {
+        return Value{
+            .data = self.data * other.data,
+            .prev = .{ self, other },
+            .op = .mul,
+            .label = Label.init(label),
+            ._backward = _backward_mul,
+        };
+    }
+
+    pub fn backward(self: *Value) void {
+        self.grad = 1.0;
+        var topo = Topo.init(self);
+        const sorted = topo.sorted();
+        for (0..sorted.len) |i| {
+            const v = sorted[sorted.len - i - 1];
+            //std.debug.print("{d}: {s}\n", .{ i, v.label.slice() });
+            if (v._backward) |f| {
+                f(v);
+            }
+        }
     }
 };
 
@@ -96,3 +130,51 @@ pub fn GenerateGraph(root: *const Value) void {
     printNode(root);
     std.debug.print("{s}\n", .{"}"});
 }
+
+const Topo = struct {
+    values: [1024]*Value = undefined,
+    count: u32 = 0,
+    visited: [1024]*Value = undefined,
+    visited_count: u32 = 0,
+
+    pub fn isVisited(self: *Topo, v: *Value) bool {
+        var already_visited = false;
+
+        for (self.visited[0..self.visited_count]) |s| {
+            if (v == s) {
+                already_visited = true;
+                break;
+            }
+        }
+
+        if (!already_visited) {
+            //std.debug.print("visited: \t{s}\n", .{v.label.slice()});
+            self.visited[self.visited_count] = v;
+            self.visited_count += 1;
+        }
+
+        return already_visited;
+    }
+
+    pub fn build(self: *Topo, v: *Value) void {
+        if (!isVisited(self, v)) {
+            for (v.prev) |child| {
+                if (child) |c| {
+                    build(self, c);
+                }
+            }
+            self.values[self.count] = v;
+            self.count += 1;
+        }
+    }
+
+    pub fn sorted(self: *Topo) []*Value {
+        return self.values[0..self.count];
+    }
+
+    pub fn init(v: *Value) Topo {
+        var t = Topo{};
+        t.build(v);
+        return t;
+    }
+};

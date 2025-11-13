@@ -10,17 +10,28 @@ pub fn main() !void {
 
     // const allocator = std.heap.page_allocator;
 
-    var x1 = value(1.5, "x1");
-    var x2 = value(-5.0, "x2");
+    // works for cases:
+    //   yk = xi + xj
+    //   yk = xi + xi
+    //   yk = xi * xj
+    //
+    // does't work for cases:
+    //   yj = xi * xi - squre relation
 
-    x1.printL();
-    x2.printL();
+    var x1 = value(2, "x1");
+    var x2 = value(-4, "x2");
 
-    var y1 = x1.add(&x2, "y1");
+    var y1 = x1.mul(&x2, "y1");
     var y2 = x2.add(&x2, "y2");
 
-    const y3 = y1.add(&y2, "y3");
+    var y3 = y1.add(&y2, "y3");
 
+    y3.printL();
+    engine.GenerateGraph(&y3);
+
+    std.debug.print("--- backward ------------\n", .{});
+
+    y3.backward();
     y3.printL();
 
     engine.GenerateGraph(&y3);
