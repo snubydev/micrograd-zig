@@ -88,8 +88,8 @@ pub const Value = struct {
         };
     }
 
-    pub fn mul(self: *Value, other: *Value, label: []const u8) Value {
-        return Value{
+    pub fn mul(self: *Value, other: *Value, label: []const u8) !Value {
+        return if (self == other) error.IncorrectArguments else Value{
             .data = self.data * other.data,
             .prev = .{ self, other },
             .op = .mul,

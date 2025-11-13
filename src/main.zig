@@ -6,8 +6,6 @@ const value = @import("engine.zig").value;
 // const micrograd_zig = @import("micrograd_zig");
 
 pub fn main() !void {
-    std.debug.print("hello\n", .{});
-
     // const allocator = std.heap.page_allocator;
 
     // works for cases:
@@ -21,18 +19,12 @@ pub fn main() !void {
     var x1 = value(2, "x1");
     var x2 = value(-4, "x2");
 
-    var y1 = x1.mul(&x2, "y1");
+    var y1 = try x1.mul(&x2, "y1");
     var y2 = x2.add(&x2, "y2");
 
     var y3 = y1.add(&y2, "y3");
 
-    y3.printL();
-    engine.GenerateGraph(&y3);
-
-    std.debug.print("--- backward ------------\n", .{});
-
     y3.backward();
-    y3.printL();
 
     engine.GenerateGraph(&y3);
 }
