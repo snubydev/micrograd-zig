@@ -8,23 +8,26 @@ const value = @import("engine.zig").value;
 pub fn main() !void {
     // const allocator = std.heap.page_allocator;
 
-    // works for cases:
-    //   yk = xi + xj
-    //   yk = xi + xi
-    //   yk = xi * xj
-    //
-    // does't work for cases:
-    //   yj = xi * xi - squre relation
+    var x1 = value(2.0, "x1");
+    var x2 = value(-5.0, "x2");
+    var y1 = x1.add(&x2, "y1");
+    var y2 = x2.mul(&x2, "y2");
+    var Y = y1.add(&y2, "y3");
+    Y.backward();
 
-    var x1 = value(2, "x1");
-    var x2 = value(-4, "x2");
+    std.debug.print("Y = {d:.5}\n", .{Y.data});
+    engine.GenerateGraph(&Y);
 
-    var y1 = try x1.mul(&x2, "y1");
-    var y2 = x2.add(&x2, "y2");
+    const h: f32 = 0.001;
 
-    var y3 = y1.add(&y2, "y3");
+    var x11 = value(2.0, "x1");
+    var x12 = value(-5.0 + h, "x2");
+    var y11 = x11.add(&x12, "y1");
+    var y12 = x12.mul(&x12, "y2");
+    var Y2 = y11.add(&y12, "y3");
+    Y2.backward();
 
-    y3.backward();
-
-    engine.GenerateGraph(&y3);
+    std.debug.print("Y2 = {d:.5}\n", .{Y2.data});
+    engine.GenerateGraph(&Y2);
+    std.debug.print("(Y2 - Y) / h = {d:.5}\n", .{(Y2.data - Y.data) / h});
 }
