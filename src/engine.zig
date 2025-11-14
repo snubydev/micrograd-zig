@@ -58,16 +58,15 @@ pub const Value = struct {
     }
 
     pub fn printMore(self: Value) void {
-        std.debug.print("Value({s}: data={d}", .{ self.label.slice(), self.data });
+        std.debug.print("Value({s}({d}): data={d}, op={s})\n", .{ self.label.buf, self.label.len_, self.data, @tagName(self.op) });
         if (self.op != .nope and self.prev[0] != null) {
-            std.debug.print(", {s}", .{@tagName(self.op)});
             for (self.prev) |child| {
                 if (child) |c| {
-                    std.debug.print(", {s}", .{c.label.slice()});
+                    //std.debug.print(", child: {s}", .{c.label.slice()});
+                    c.printMore();
                 }
             }
         }
-        std.debug.print(")\n", .{});
     }
 
     fn _backward_add(self: *const Value) void {

@@ -3,6 +3,7 @@ const std = @import("std");
 const engine = @import("engine.zig");
 const value = @import("engine.zig").value;
 const Value = @import("engine.zig").Value;
+const Neuron = @import("nn.zig").Neuron;
 
 // const micrograd_zig = @import("micrograd_zig");
 
@@ -25,7 +26,25 @@ fn makeNeurone(x1: f32, x2: f32, w1: f32, w2: f32, b: f32) void {
 pub fn main() !void {
     // const allocator = std.heap.page_allocator;
 
-    makeNeurone(2.0, 0.0, -3.0, 1.0, 6.88137358701954);
+    // makeNeurone(2.0, 0.0, -3.0, 1.0, 6.88137358701954);
+
+    const allocator = std.heap.page_allocator;
+    var n1 = try Neuron.init(allocator, 4);
+    defer n1.deinit();
+
+    n1.print();
+
+    var x = [_]Value{
+        value(2.0, "x1"),
+        value(3.0, "x2"),
+        value(-1.0, "x3"),
+        value(1.0, "x4"),
+    };
+
+    const out = try n1.call(&x);
+
+    // out.printMore();
+    engine.GenerateGraph(&out);
 }
 
 // zig test --summary all
