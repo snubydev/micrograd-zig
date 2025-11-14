@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Operation = enum { add, mul, nope };
+const Operation = enum { add, mul, tanh, nope };
 
 pub fn FixedString(comptime N: usize) type {
     return struct {
@@ -62,7 +62,9 @@ pub const Value = struct {
         if (self.op != .nope and self.prev[0] != null) {
             std.debug.print(", {s}", .{@tagName(self.op)});
             for (self.prev) |child| {
-                std.debug.print(", {s}", .{child.?.label.slice()});
+                if (child) |c| {
+                    std.debug.print(", {s}", .{c.label.slice()});
+                }
             }
         }
         std.debug.print(")\n", .{});
@@ -78,8 +80,11 @@ pub const Value = struct {
         self.prev[1].?.grad += self.prev[0].?.data * self.grad;
     }
 
+    fn _backward_tanh(self: *const Value) void {
+        self.prev[0].?.grad += (1 - std.math.pow(f32, self.data, 2)) * self.grad;
+    }
+
     fn _forward_op(self: *Value) void {
-        self.grad = 0;
         // std.debug.print("label: {s}, op: {s}\n", .{ self.label.slice(), @tagName(self.op) });
         switch (self.op) {
             .add => {
@@ -113,10 +118,24 @@ pub const Value = struct {
         };
     }
 
+    pub fn tanh(self: *Value) Value {
+        return Value{
+            .data = std.math.tanh(self.data),
+            .prev = .{ self, null },
+            .op = .tanh,
+            .label = Label.init("tanh"),
+            ._backward = _backward_tanh,
+        };
+    }
+
     pub fn backward(self: *Value) void {
-        self.grad = 1.0;
         var topo = Topo.init(self);
         const sorted = topo.sorted();
+        for (sorted) |s| {
+            s.grad = 0;
+        }
+        self.grad = 1.0;
+
         for (0..sorted.len) |i| {
             const v = sorted[sorted.len - i - 1];
             //std.debug.print("{d}: {s}\n", .{ i, v.label.slice() });
