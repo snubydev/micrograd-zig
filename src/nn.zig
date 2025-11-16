@@ -2,6 +2,8 @@ const std = @import("std");
 const Value = @import("engine.zig").Value;
 const value = @import("engine.zig").value;
 
+var rand_impl = std.Random.DefaultPrng.init(512);
+
 pub const Neuron = struct {
     allocator: std.mem.Allocator,
     w: []Value = undefined,
@@ -17,7 +19,8 @@ pub const Neuron = struct {
         for (weights, 0..) |*w, i| {
             const label = try std.fmt.bufPrint(&buf, "w{d}", .{i + 1});
 
-            const f32_value = std.crypto.random.float(f32);
+            const f32_value = rand_impl.random().float(f32);
+
             w.* = value(f32_value, buf[0..label.len]);
         }
 

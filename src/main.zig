@@ -76,10 +76,13 @@ pub fn main() !void {
 
     var l1 = try Layer.init(allocator, 4, 4);
     defer l1.deinit();
-    const outs = try l1.call(xs[0]);
-    std.debug.print("layer outputs ------\n", .{});
-    for (outs) |o| {
-        o.print();
+
+    for (xs, 0..) |x, i| {
+        const outs = try l1.call(x);
+        std.debug.print("layer outputs [{d}] ------\n", .{i + 1});
+        for (outs) |o| {
+            o.print();
+        }
     }
 
     //const out = try n1.call(xs[0]);
