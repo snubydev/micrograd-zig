@@ -70,8 +70,8 @@ pub fn main() !void {
     }
 
     for (xs) |x| {
-        _ = try n1.call(x);
-        n1.out().print();
+        const out = try n1.call(x);
+        out.print();
     }
 
     var l1 = try Layer.init(allocator, 4, 4);
