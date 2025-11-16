@@ -4,6 +4,7 @@ const engine = @import("engine.zig");
 const value = @import("engine.zig").value;
 const Value = @import("engine.zig").Value;
 const Neuron = @import("nn.zig").Neuron;
+const Layer = @import("nn.zig").Layer;
 
 // const micrograd_zig = @import("micrograd_zig");
 
@@ -33,10 +34,6 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     //const allocator = std.heap.page_allocator;
-    var n1 = try Neuron.init(allocator, 4);
-    defer n1.deinit();
-
-    //n1.print();
 
     const nin = 4;
     var x_array = [_][nin]f32{
@@ -45,6 +42,10 @@ pub fn main() !void {
         .{ -1.7, -1.1, -2.3, 0.4 },
         .{ 0.0, 1.0, 0.0, 0.1 },
     };
+
+    var n1 = try Neuron.init(allocator, nin);
+    defer n1.deinit();
+    //n1.print();
 
     var xs = try allocator.alloc([]Value, x_array.len);
     defer {
@@ -69,7 +70,16 @@ pub fn main() !void {
     }
 
     for (xs) |x| {
-        (try n1.call(x)).print();
+        _ = try n1.call(x);
+        n1.out().print();
+    }
+
+    var l1 = try Layer.init(allocator, 4, 4);
+    defer l1.deinit();
+    const outs = try l1.call(xs[0]);
+    std.debug.print("layer outputs ------\n", .{});
+    for (outs) |o| {
+        o.print();
     }
 
     //const out = try n1.call(xs[0]);
