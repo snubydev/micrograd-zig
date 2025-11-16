@@ -9,6 +9,9 @@ pub const Neuron = struct {
     oper_buf: []Value = undefined,
 
     pub fn init(allocator: std.mem.Allocator, nin: u32) !Neuron {
+        const oper_count = nin + (nin - 1) + 1; // sum(wi * xi) + b
+        const oper_buf = try allocator.alloc(Value, oper_count);
+
         var buf: [8]u8 = undefined;
         const weights = try allocator.alloc(Value, nin);
         for (weights, 0..) |*w, i| {
@@ -18,6 +21,7 @@ pub const Neuron = struct {
 
         return Neuron{
             .w = weights,
+            .oper_buf = oper_buf,
             .allocator = allocator,
         };
     }
@@ -38,16 +42,10 @@ pub const Neuron = struct {
 
     pub fn call(self: *Neuron, inputs: []Value) !Value {
         if (inputs.len != self.w.len) return error.IncorrectInputCount;
-        const oper_count = inputs.len + (inputs.len - 1) + 1; // sum(wi * xi) + b
-
-        // std.debug.print("oper_count {d}\n", .{oper_count});
-        self.oper_buf = try self.allocator.alloc(Value, oper_count);
-
         var i: u32 = 0;
 
         var buf: [12]u8 = undefined;
         for (0..inputs.len) |k| {
-            // std.debug.print("k={d}, xw\n", .{k});
             const x = &inputs[k];
             const label = try std.fmt.bufPrint(&buf, "xw{d}", .{k + 1});
             self.oper_buf[i] = self.w[i].mul(x, label);
@@ -57,16 +55,19 @@ pub const Neuron = struct {
         const j = i;
         var acc = &self.oper_buf[0];
         for (1..j) |k| {
-            // std.debug.print("from k={d}, into i={d} xw_sum\n", .{ k, i });
             const label = try std.fmt.bufPrint(&buf, "xw_sum{d}", .{k});
             self.oper_buf[i] = acc.add(&self.oper_buf[k], label);
             acc = &self.oper_buf[i];
             i += 1;
         }
 
-        std.debug.print("i={d}, b_sum\n", .{i});
         self.oper_buf[i] = self.oper_buf[i - 1].add(&self.b, "b_sum");
 
         return self.oper_buf[i].tanh();
+    }
+
+    pub fn call_input(self: Neuron, inputs: []Value) !Value {
+        _ = self;
+        _ = inputs;
     }
 };

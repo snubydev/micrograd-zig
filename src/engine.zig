@@ -37,6 +37,15 @@ pub fn value(data: f32, label: []const u8) Value {
     return Value{ .data = data, .label = Label.init(label) };
 }
 
+pub fn vec(allocator: std.mem.Allocator, array: []const f32) []Value {
+    var v_list = allocator.alloc(Value, array.len) catch unreachable;
+    var buf: [12]u8 = undefined;
+    for (array, 0..) |x, i| {
+        v_list[i] = value(x, std.fmt.bufPrint(&buf, "x{d}", .{i}) catch unreachable);
+    }
+    return v_list;
+}
+
 pub const Value = struct {
     // allocator: std.mem.Allocator,
     data: f32,

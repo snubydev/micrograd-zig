@@ -28,23 +28,53 @@ pub fn main() !void {
 
     // makeNeurone(2.0, 0.0, -3.0, 1.0, 6.88137358701954);
 
-    const allocator = std.heap.page_allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok); // assert no leaks
+    const allocator = gpa.allocator();
+
+    //const allocator = std.heap.page_allocator;
     var n1 = try Neuron.init(allocator, 4);
     defer n1.deinit();
 
-    n1.print();
+    //n1.print();
 
-    var x = [_]Value{
-        value(2.0, "x1"),
-        value(3.0, "x2"),
-        value(-1.0, "x3"),
-        value(1.0, "x4"),
+    const nin = 4;
+    var x_array = [_][nin]f32{
+        .{ 2.0, 3.0, -1.0, 1.0 },
+        .{ 2.2, 0.5, 1.0, -5.0 },
+        .{ -1.7, -1.1, -2.3, 0.4 },
+        .{ 0.0, 1.0, 0.0, 0.1 },
     };
 
-    const out = try n1.call(&x);
+    var xs = try allocator.alloc([]Value, x_array.len);
+    defer {
+        for (xs) |x| {
+            allocator.free(x);
+        }
+        allocator.free(xs);
+    }
 
-    // out.printMore();
-    engine.GenerateGraph(&out);
+    for (0..x_array.len) |i| {
+        xs[i] = engine.vec(allocator, x_array[i][0..]);
+    }
+
+    for (xs, 0..) |xs_i, i| {
+        std.debug.print("xs[{d}]=[", .{i});
+        for (xs_i, 0..) |x, j| {
+            if (x.data >= 0) std.debug.print(" ", .{});
+            std.debug.print("{d:.1}", .{x.data});
+            if (j < xs_i.len - 1) std.debug.print(",\t", .{});
+        }
+        std.debug.print("]\n", .{});
+    }
+
+    for (xs) |x| {
+        (try n1.call(x)).print();
+    }
+
+    //const out = try n1.call(xs[0]);
+    //out.print();
+    // engine.GenerateGraph(&out);
 }
 
 // zig test --summary all
