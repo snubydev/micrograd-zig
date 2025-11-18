@@ -5,24 +5,25 @@ const value = @import("engine.zig").value;
 const Value = @import("engine.zig").Value;
 const Neuron = @import("nn.zig").Neuron;
 const Layer = @import("nn.zig").Layer;
+const MLP = @import("nn.zig").MLP;
 
 // const micrograd_zig = @import("micrograd_zig");
 
-fn makeNeurone(x1: f32, x2: f32, w1: f32, w2: f32, b: f32) void {
-    var _x1 = value(x1, "x1");
-    var _x2 = value(x2, "x2");
-    var _w1 = value(w1, "w1");
-    var _w2 = value(w2, "w2");
-    var _b = value(b, "b");
-    var _x1_w1 = _x1.mul(&_w1, "x1w1");
-    var _x2_w2 = _x2.mul(&_w2, "x2w2");
-    var _xw = _x1_w1.add(&_x2_w2, "xw");
-    var n = _xw.add(&_b, "n");
-    var o = n.tanh();
-    o.printMore();
-    o.backward();
-    engine.GenerateGraph(&o);
-}
+// fn makeNeurone(x1: f32, x2: f32, w1: f32, w2: f32, b: f32) void {
+//     var _x1 = value(x1, "x1");
+//     var _x2 = value(x2, "x2");
+//     var _w1 = value(w1, "w1");
+//     var _w2 = value(w2, "w2");
+//     var _b = value(b, "b");
+//     var _x1_w1 = _x1.mul(&_w1, "x1w1");
+//     var _x2_w2 = _x2.mul(&_w2, "x2w2");
+//     var _xw = _x1_w1.add(&_x2_w2, "xw");
+//     var n = _xw.add(&_b, "n");
+//     var o = n.tanh();
+//     o.printMore();
+//     o.backward();
+//     engine.GenerateGraph(&o);
+// }
 
 pub fn main() !void {
     // const allocator = std.heap.page_allocator;
@@ -35,16 +36,16 @@ pub fn main() !void {
 
     //const allocator = std.heap.page_allocator;
 
-    const nin = 4;
+    const nin = 3;
     var x_array = [_][nin]f32{
-        .{ 2.0, 3.0, -1.0, 1.0 },
-        .{ 2.2, 0.5, 1.0, -5.0 },
-        .{ -1.7, -1.1, -2.3, 0.4 },
-        .{ 0.0, 1.0, 0.0, 0.1 },
+        .{ 10.0, 5, -9.0 },
+        .{ 2.2, 0.5, 1.0 },
+        .{ -1.7, -1.1, -2.3 },
+        .{ 5.0, 1.0, 0.0 },
     };
 
-    var n1 = try Neuron.init(allocator, nin);
-    defer n1.deinit();
+    // var n1 = try Neuron.init(allocator, nin);
+    // defer n1.deinit();
     //n1.print();
 
     var xs = try allocator.alloc([]Value, x_array.len);
@@ -69,21 +70,58 @@ pub fn main() !void {
         std.debug.print("]\n", .{});
     }
 
-    for (xs) |x| {
-        const out = try n1.call(x);
-        out.print();
-    }
+    // for (xs) |x| {
+    //     const out = try n1.call(x);
+    //     out.print();
+    // }
 
-    var l1 = try Layer.init(allocator, 4, 4);
-    defer l1.deinit();
+    var nouts = [_]u8{ 4, 4, 1 };
+    var mlp = try MLP.init(allocator, 3, nouts[0..]);
 
-    for (xs, 0..) |x, i| {
-        const outs = try l1.call(x);
-        std.debug.print("layer outputs [{d}] ------\n", .{i + 1});
-        for (outs) |o| {
+    defer mlp.deinit();
+
+    var outs = try mlp.call(xs[0]);
+    outs[0].backward();
+
+    for (mlp.layers, 0..) |l, i| {
+        std.debug.print("layer [{d}] ---------\n", .{i});
+        std.debug.print("layer [{d}] neurons ---------\n", .{i});
+        for (l.neurons) |n| {
+            n.print();
+        }
+        std.debug.print("layer [{d}] outs ---------\n", .{i});
+        for (l.outs) |o| {
             o.print();
         }
     }
+    std.debug.print("mlp outputs [{d}] ------\n", .{1});
+    for (outs) |o| {
+        o.print();
+    }
+
+    std.debug.print("------\n\n\n", .{});
+    engine.GenerateGraph(&outs[0]);
+
+    // var l1 = try Layer.init(allocator, 4, 4);
+    // defer l1.deinit();
+    //
+    // for (xs, 0..) |x, i| {
+    //     const outs = try l1.call(x);
+    //     std.debug.print("layer outputs [{d}] ------\n", .{i + 1});
+    //     for (outs) |o| {
+    //         o.print();
+    //     }
+    // }
+    //
+    // std.debug.print("\nparameters ------\n", .{});
+    // for (l1.neurons) |n| {
+    //     //const params = n.parameters();
+    //     for (n.w) |w| {
+    //         w.print();
+    //     }
+    //     n.b.print();
+    //     std.debug.print("---", .{});
+    // }
 
     //const out = try n1.call(xs[0]);
     //out.print();

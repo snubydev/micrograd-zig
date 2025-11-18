@@ -41,7 +41,7 @@ pub fn vec(allocator: std.mem.Allocator, array: []const f32) []Value {
     var v_list = allocator.alloc(Value, array.len) catch unreachable;
     var buf: [12]u8 = undefined;
     for (array, 0..) |x, i| {
-        v_list[i] = value(x, std.fmt.bufPrint(&buf, "x{d}", .{i}) catch unreachable);
+        v_list[i] = value(x, std.fmt.bufPrint(&buf, "x{d}", .{i + 1}) catch unreachable);
     }
     return v_list;
 }
@@ -126,12 +126,15 @@ pub const Value = struct {
         };
     }
 
-    pub fn tanh(self: *Value) Value {
+    pub fn tanh(self: *Value, layer_id: u8, neuron_id: u8) Value {
+        var buf: [12]u8 = undefined;
+        const label = std.fmt.bufPrint(&buf, "L{d}N{d}_tanh", .{ layer_id, neuron_id }) catch "n__tanh";
+
         return Value{
             .data = std.math.tanh(self.data),
             .prev = .{ self, null },
             .op = .tanh,
-            .label = Label.init("tanh"),
+            .label = Label.init(label),
             ._backward = _backward_tanh,
         };
     }
@@ -170,23 +173,30 @@ fn printNode(v: *const Value) void {
     for (v.prev) |child| {
         if (child) |c| {
             std.debug.print("\t{s} -> {s};\n", .{ c.label.slice(), v.label.slice() });
-            printNode(c);
+            //printNode(c);
         }
     }
 }
 
-pub fn GenerateGraph(root: *const Value) void {
+pub fn GenerateGraph(root: *Value) void {
     std.debug.print("digraph G {s}\n", .{"{"});
     std.debug.print("\tnode [shape = record];\n", .{});
 
-    printNode(root);
+    var topo = Topo.init(root);
+    const sorted = topo.sorted();
+
+    for (sorted) |v| {
+        printNode(v);
+    }
+
+    // printNode(root);
     std.debug.print("{s}\n", .{"}"});
 }
 
 const Topo = struct {
-    values: [1024]*Value = undefined,
+    values: [4096]*Value = undefined,
     count: u32 = 0,
-    visited: [1024]*Value = undefined,
+    visited: [4096]*Value = undefined,
     visited_count: u32 = 0,
 
     pub fn isVisited(self: *Topo, v: *Value) bool {
