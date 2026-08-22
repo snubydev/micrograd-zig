@@ -1,175 +1,153 @@
 const std = @import("std");
+const t = std.testing;
+const fmt = std.fmt;
+const Allocator = std.mem.Allocator;
+const testHeader = @import("helpers.zig").testHeader;
 
-const Operation = enum { add, mul, tanh, nope };
+const Operation = enum { add, sub, mul, tanh, leaf };
 
-pub fn FixedString(comptime N: usize) type {
-    return struct {
-        buf: [N]u8 = undefined,
-        len_: usize = 0,
-
-        pub fn init(text: []const u8) @This() {
-            var s = @This(){};
-            const n = @min(text.len, N);
-            std.mem.copyForwards(u8, s.buf[0..n], text[0..n]);
-            s.len_ = n;
-            // if (n < N) std.mem.set(u8, s.buf[n..], 0);  // reset tail
-            return s;
-        }
-
-        pub fn slice(self: *const @This()) []const u8 {
-            return self.buf[0..self.len_];
-        }
-    };
-}
-
-pub const Label = FixedString(12);
-
-// pub const FString = struct {
-//     buf: [12]u8,
-//     len_: usize = 0,
-//
-//     pub fn len(self: *const FString) usize {
-//         return self.buf.len;
-//     }
-// };
-
-pub fn value(data: f32, label: []const u8) Value {
-    return Value{ .data = data, .label = Label.init(label) };
-}
-
-pub fn vec(allocator: std.mem.Allocator, array: []const f32) []Value {
-    var v_list = allocator.alloc(Value, array.len) catch unreachable;
-    var buf: [12]u8 = undefined;
+pub fn vec(a: Allocator, array: []const f32) []Value {
+    var v_list = a.alloc(Value, array.len) catch unreachable;
     for (array, 0..) |x, i| {
-        v_list[i] = value(x, std.fmt.bufPrint(&buf, "x{d}", .{i + 1}) catch unreachable);
+        v_list[i] = Value.init(x, fmt.allocPrint(a, "x{d}", .{i + 1}) catch unreachable);
     }
     return v_list;
 }
 
 pub const Value = struct {
-    // allocator: std.mem.Allocator,
     data: f32,
     grad: f32 = 0.0,
-    label: Label = Label.init("undefined"), //FixedString, // [12]u8 = [_]u8{0} ** 12,
+    label: []const u8,
+    prev: []*Value,
+    op: Operation = .leaf,
 
-    _backward: ?*const fn (self: *const Value) void = null,
+    pub fn init(a: Allocator, data: f32, label: []const u8) !Value {
+        return Value{ .data = data, .label = try a.dupe(u8, label), .prev = &.{} };
+    }
 
-    prev: [2]?*Value = [_]?*Value{ null, null },
-
-    op: Operation = .nope,
+    pub fn deinit(self: *Value, a: Allocator) void {
+        a.free(self.label);
+        a.free(self.prev);
+    }
 
     pub fn print(self: Value) void {
-        std.debug.print("Value(data={d})\n", .{self.data});
+        std.debug.print("type=Value data={d:.4} grad={d} label={s} op={s})\n", .{ self.data, self.grad, self.label, @tagName(self.op) });
     }
 
-    pub fn printL(self: Value) void {
-        std.debug.print("Value({s}: data={d}, grad={d})\n", .{ self.label.slice(), self.data, self.grad });
-    }
-
-    pub fn printMore(self: Value) void {
-        std.debug.print("Value({s}({d}): data={d}, op={s})\n", .{ self.label.buf, self.label.len_, self.data, @tagName(self.op) });
-        if (self.op != .nope and self.prev[0] != null) {
-            for (self.prev) |child| {
-                if (child) |c| {
-                    //std.debug.print(", child: {s}", .{c.label.slice()});
-                    c.printMore();
-                }
-            }
-        }
-    }
-
-    fn _backward_add(self: *const Value) void {
-        self.prev[0].?.grad += 1.0 * self.grad;
-        self.prev[1].?.grad += 1.0 * self.grad;
-    }
-
-    fn _backward_mul(self: *const Value) void {
-        self.prev[0].?.grad += self.prev[1].?.data * self.grad;
-        self.prev[1].?.grad += self.prev[0].?.data * self.grad;
-    }
-
-    fn _backward_tanh(self: *const Value) void {
-        self.prev[0].?.grad += (1 - std.math.pow(f32, self.data, 2)) * self.grad;
-    }
-
-    fn _forward_op(self: *Value) void {
-        // std.debug.print("label: {s}, op: {s}\n", .{ self.label.slice(), @tagName(self.op) });
-        switch (self.op) {
-            .add => {
-                self.data = self.prev[0].?.data + self.prev[1].?.data;
-            },
-            .mul => {
-                self.data = self.prev[0].?.data * self.prev[1].?.data;
-            },
-            else => {},
-        }
-    }
-
-    pub fn add(self: *Value, other: *Value, label: []const u8) Value {
-        return Value{
-            .data = self.data + other.data,
-            .prev = .{ self, other },
-            .op = .add,
-            .label = Label.init(label),
-            ._backward = _backward_add,
-        };
-    }
-
-    pub fn mul(self: *Value, other: *Value, label: []const u8) Value {
-        // return if (self == other) error.IncorrectArguments else Value{
-        return Value{
-            .data = self.data * other.data,
-            .prev = .{ self, other },
-            .op = .mul,
-            .label = Label.init(label),
-            ._backward = _backward_mul,
-        };
-    }
-
-    pub fn tanh(self: *Value, layer_id: u8, neuron_id: u8) Value {
-        var buf: [12]u8 = undefined;
-        const label = std.fmt.bufPrint(&buf, "L{d}N{d}_tanh", .{ layer_id, neuron_id }) catch "n__tanh";
-
-        return Value{
-            .data = std.math.tanh(self.data),
-            .prev = .{ self, null },
-            .op = .tanh,
-            .label = Label.init(label),
-            ._backward = _backward_tanh,
-        };
-    }
-
-    pub fn backward(self: *Value) void {
-        var topo = Topo.init(self);
-        const sorted = topo.sorted();
-        for (sorted) |s| {
-            s.grad = 0;
-        }
-        self.grad = 1.0;
-
-        for (0..sorted.len) |i| {
-            const v = sorted[sorted.len - i - 1];
-            //std.debug.print("{d}: {s}\n", .{ i, v.label.slice() });
-            if (v._backward) |f| {
-                f(v);
-            }
-        }
-    }
-
-    pub fn forward(self: *Value) void {
-        var topo = Topo.init(self);
-        const sorted = topo.sorted();
-        for (0..sorted.len) |i| {
-            const v = sorted[i];
-            // std.debug.print("{d}: {s}\n", .{ i, v.label.slice() });
-            v._forward_op();
+    pub fn printGraph(self: Value) void {
+        self.print();
+        for (self.prev) |child| {
+            child.print();
         }
     }
 };
 
+//     fn _backward_add(self: *const Value) void {
+//         self.prev[0].?.grad += 1.0 * self.grad;
+//         self.prev[1].?.grad += 1.0 * self.grad;
+//     }
+//
+//     fn _backward_sub(self: *const Value) void {
+//         self.prev[0].?.grad += 1.0 * self.grad;
+//         self.prev[1].?.grad -= 1.0 * self.grad;
+//     }
+//
+//     fn _backward_mul(self: *const Value) void {
+//         self.prev[0].?.grad += self.prev[1].?.data * self.grad;
+//         self.prev[1].?.grad += self.prev[0].?.data * self.grad;
+//     }
+//
+//     fn _backward_tanh(self: *const Value) void {
+//         self.prev[0].?.grad += (1 - std.math.pow(f32, self.data, 2)) * self.grad;
+//     }
+//
+//     fn _forward_op(self: *Value) void {
+//         // std.debug.print("label: {s}, op: {s}\n", .{ self.label.slice(), @tagName(self.op) });
+//         switch (self.op) {
+//             .add => {
+//                 self.data = self.prev[0].?.data + self.prev[1].?.data;
+//             },
+//             .mul => {
+//                 self.data = self.prev[0].?.data * self.prev[1].?.data;
+//             },
+//             else => {},
+//         }
+//     }
+//
+//     pub fn add(self: *Value, other: *Value, label: []const u8) Value {
+//         return Value{
+//             .data = self.data + other.data,
+//             .prev = .{ self, other },
+//             .op = .add,
+//             .label = Label.init(label),
+//             ._backward = _backward_add,
+//         };
+//     }
+//
+//     pub fn sub(self: *Value, other: *Value, label: []const u8) Value {
+//         return Value{
+//             .data = self.data - other.data,
+//             .prev = .{ self, other },
+//             .op = .sub,
+//             .label = Label.init(label),
+//             ._backward = _backward_sub,
+//         };
+//     }
+//
+//     pub fn mul(self: *Value, other: *Value, label: []const u8) Value {
+//         // return if (self == other) error.IncorrectArguments else Value{
+//         return Value{
+//             .data = self.data * other.data,
+//             .prev = .{ self, other },
+//             .op = .mul,
+//             .label = Label.init(label),
+//             ._backward = _backward_mul,
+//         };
+//     }
+//
+//     pub fn tanh(self: *Value, layer_id: u8, neuron_id: u8) Value {
+//         var buf: [12]u8 = undefined;
+//         const label = std.fmt.bufPrint(&buf, "L{d}N{d}_tanh", .{ layer_id, neuron_id }) catch "n__tanh";
+//
+//         return Value{
+//             .data = std.math.tanh(self.data),
+//             .prev = .{ self, null },
+//             .op = .tanh,
+//             .label = Label.init(label),
+//             ._backward = _backward_tanh,
+//         };
+//     }
+//
+//     pub fn backward(self: *Value) void {
+//         var topo = Topo.init(self);
+//         const sorted = topo.sorted();
+//         for (sorted) |s| {
+//             s.grad = 0;
+//         }
+//         self.grad = 1.0;
+//
+//         for (0..sorted.len) |i| {
+//             const v = sorted[sorted.len - i - 1];
+//             //std.debug.print("{d}: {s}\n", .{ i, v.label.slice() });
+//             if (v._backward) |f| {
+//                 f(v);
+//             }
+//         }
+//     }
+//
+//     pub fn forward(self: *Value) void {
+//         var topo = Topo.init(self);
+//         const sorted = topo.sorted();
+//         for (0..sorted.len) |i| {
+//             const v = sorted[i];
+//             // std.debug.print("{d}: {s}\n", .{ i, v.label.slice() });
+//             v._forward_op();
+//         }
+//     }
+// };
+
 fn printNode(v: *const Value) void {
     std.debug.print("\t{s} [label=\"{{{s} | data: {d} | grad: {d}}}\"];\n", .{ v.label.slice(), v.label.slice(), v.data, v.grad });
-
     for (v.prev) |child| {
         if (child) |c| {
             std.debug.print("\t{s} -> {s};\n", .{ c.label.slice(), v.label.slice() });
@@ -181,15 +159,11 @@ fn printNode(v: *const Value) void {
 pub fn GenerateGraph(root: *Value) void {
     std.debug.print("digraph G {s}\n", .{"{"});
     std.debug.print("\tnode [shape = record];\n", .{});
-
     var topo = Topo.init(root);
     const sorted = topo.sorted();
-
     for (sorted) |v| {
         printNode(v);
     }
-
-    // printNode(root);
     std.debug.print("{s}\n", .{"}"});
 }
 
@@ -210,11 +184,9 @@ const Topo = struct {
         }
 
         if (!already_visited) {
-            //std.debug.print("visited: \t{s}\n", .{v.label.slice()});
             self.visited[self.visited_count] = v;
             self.visited_count += 1;
         }
-
         return already_visited;
     }
 
@@ -235,8 +207,26 @@ const Topo = struct {
     }
 
     pub fn init(v: *Value) Topo {
-        var t = Topo{};
-        t.build(v);
-        return t;
+        var topo = Topo{};
+        topo.build(v);
+        return topo;
     }
 };
+
+test "value" {
+    testHeader(@src());
+    const a = t.allocator;
+    var x1 = try Value.init(a, 2.0, "x1");
+    var x2 = try Value.init(a, 3.0, "x2");
+
+    defer {
+        x1.deinit(a);
+        x2.deinit(a);
+    }
+
+    try t.expectEqual(2.0, x1.data);
+    try t.expectEqual(3.0, x2.data);
+
+    x1.print();
+    x2.print();
+}
