@@ -17,12 +17,12 @@ pub fn vec(a: Allocator, array: []const f32) []Value {
 pub const Value = struct {
     data: f32,
     grad: f32 = 0.0,
-    label: []const u8,
+    label: []u8,
     prev: []*Value,
     op: Operation = .leaf,
 
     pub fn init(a: Allocator, data: f32, label: []const u8) !Value {
-        return Value{ .data = data, .label = try a.dupe(u8, label), .prev = &.{} };
+        return Value{ .data = data, .op = .leaf, .label = try a.dupe(u8, label), .prev = &.{} };
     }
 
     pub fn deinit(self: *Value, a: Allocator) void {
