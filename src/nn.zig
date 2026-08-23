@@ -82,7 +82,7 @@ pub const NeuronActivation = struct {
         for (self.prod, neuron.weights, self.x, 0..) |*p, *w, *x, j| {
             const label = try fmt.bufPrint(&buf, "n{d}_w{d}x{d}", .{ neuron.id, j + 1, j + 1 });
             p.* = .{
-                .data = w.data * x.data,
+                .data = 0, //w.data * x.data,
                 .grad = 0,
                 .op = .mul,
                 .prev = try a.dupe(*Value, &.{ w, x }),
@@ -93,7 +93,7 @@ pub const NeuronActivation = struct {
         self.sum = try a.alloc(Value, nin); // sum ([xi*wi, i=0..nin-1]) + b
         const b_label = try fmt.bufPrint(&buf, "n{d}_sum_b", .{neuron.id});
         self.sum[0] = .{
-            .data = neuron.bias.data + self.prod[0].data,
+            .data = 0, //neuron.bias.data + self.prod[0].data,
             .grad = 0,
             .op = .add,
             .prev = try a.dupe(*Value, &.{ &neuron.bias, &self.prod[0] }),
@@ -103,7 +103,7 @@ pub const NeuronActivation = struct {
         for (self.sum[1..], self.prod[1..], 0..) |*s, *p, i| {
             const label = try fmt.bufPrint(&buf, "n{d}_sum{d}", .{ neuron.id, i + 1 });
             s.* = .{
-                .data = self.sum[i].data + p.data,
+                .data = 0, //self.sum[i].data + p.data,
                 .grad = 0,
                 .op = .add,
                 .prev = try a.dupe(*Value, &.{ &self.sum[i], p }),
@@ -149,6 +149,19 @@ pub const NeuronActivation = struct {
             s.print();
         }
         self.out.print();
+    }
+
+    pub fn call(self: *NeuronActivation) void {
+        for (self.prod) |*p| {
+            assert(p.prev.len == 2);
+            p.data = p.prev[0].data * p.prev[1].data;
+        }
+        for (self.sum) |*s| {
+            assert(s.prev.len == 2);
+            s.data = s.prev[0].data + s.prev[1].data;
+        }
+        assert(self.out.prev.len == 1);
+        self.out.data = std.math.tanh(self.out.prev[0].data);
     }
 };
 
@@ -328,6 +341,16 @@ fn getLayerId() u64 {
 //     }
 // };
 
+fn activateNeuron(nin: u32, n: *Neuron, na: *NeuronActivation) f32 {
+    var acc: f32 = 0;
+    for (0..nin) |i| {
+        acc += na.x[i].data * n.weights[i].data;
+    }
+    acc += n.bias.data;
+    acc = std.math.tanh(acc);
+    return acc;
+}
+
 test "neuron_init" {
     testHeader(@src());
     const a = t.allocator;
@@ -350,22 +373,44 @@ test "neuron_init" {
 test "neuron_activation_init" {
     testHeader(@src());
     const a = t.allocator;
-    var n1 = try Neuron.init(a, 4);
-    var x = [_]Value{
-        try Value.init(a, 1.1, "x1"),
-        try Value.init(a, 2.2, "x2"),
-        try Value.init(a, 3.3, "x3"),
-        try Value.init(a, 4.4, "x4"),
+    const nin: u32 = 4;
+    var n1 = try Neuron.init(a, nin);
+    var inputs = [_]Value{
+        try Value.init(a, -0.1, "x1"),
+        try Value.init(a, 0, "x2"),
+        try Value.init(a, 0.1, "x3"),
+        try Value.init(a, 0.25, "x4"),
     };
-    var na1 = try NeuronActivation.init(a, 4, &n1, &x);
+    var na1 = try NeuronActivation.init(a, nin, &n1, &inputs);
     n1.print();
+
+    try t.expectEqual(nin, n1.weights.len);
+    try t.expectEqual(nin, na1.x.len);
+    try t.expectEqual(nin, na1.prod.len);
+    try t.expectEqual(nin, na1.sum.len);
+    for (na1.prod) |p| {
+        try t.expectEqual(2, p.prev.len);
+    }
+    for (na1.sum) |s| {
+        try t.expectEqual(2, s.prev.len);
+    }
+    try t.expectEqual(1, na1.out.prev.len);
+
+    na1.call();
     na1.print();
 
-    try t.expectEqual(n1.weights[0].data * x[0].data, na1.prod[0].data);
-    try t.expectEqual(4, n1.weights.len);
-    try t.expectEqual(4, na1.x.len);
-    try t.expectEqual(4, na1.prod.len);
-    try t.expectEqual(4, na1.sum.len);
+    // calc tanh
+    const expected_1 = activateNeuron(nin, &n1, &na1);
+    try t.expectEqual(expected_1, na1.out.data);
+
+    for (&inputs) |*x| {
+        x.data += 0.2;
+    }
+    na1.call();
+    na1.print();
+    // calc tanh
+    const expected_2 = activateNeuron(nin, &n1, &na1);
+    try t.expectEqual(expected_2, na1.out.data);
 
     defer {
         na1.deinit(a);
