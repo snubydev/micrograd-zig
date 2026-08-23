@@ -30,11 +30,11 @@ pub const Value = struct {
         a.free(self.prev);
     }
 
-    pub fn print(self: Value) void {
+    pub fn print(self: *Value) void {
         std.debug.print("type=Value data={d:.4} grad={d} label={s} op={s})\n", .{ self.data, self.grad, self.label, @tagName(self.op) });
     }
 
-    pub fn printGraph(self: Value) void {
+    pub fn printGraph(self: *Value) void {
         self.print();
         for (self.prev) |child| {
             child.print();

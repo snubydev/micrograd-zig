@@ -47,7 +47,7 @@ pub const Neuron = struct {
 
     pub fn print(self: *Neuron) void {
         std.debug.print("type=Neuron id={d}\n", .{self.id});
-        for (self.weights) |w| {
+        for (self.weights) |*w| {
             w.print();
         }
         self.bias.print();
@@ -55,14 +55,14 @@ pub const Neuron = struct {
 };
 
 pub const NeuronActivation = struct {
-    x: []Value,
+    x: []*Value,
     prod: []Value,
     sum: []Value,
     out: Value,
     topo: []*Value,
     id: u64,
 
-    pub fn init(a: Allocator, nin: u32, neuron: *Neuron, inputs: []Value) !NeuronActivation {
+    pub fn init(a: Allocator, nin: u32, neuron: *Neuron, inputs: []*Value) !NeuronActivation {
         var self: NeuronActivation = undefined;
         self.id = neuron.id;
 
@@ -79,7 +79,7 @@ pub const NeuronActivation = struct {
         var buf: [64]u8 = undefined;
 
         self.prod = try a.alloc(Value, nin);
-        for (self.prod, neuron.weights, self.x, 0..) |*p, *w, *x, j| {
+        for (self.prod, neuron.weights, self.x, 0..) |*p, *w, x, j| {
             const label = try fmt.bufPrint(&buf, "n{d}_w{d}x{d}", .{ neuron.id, j + 1, j + 1 });
             p.* = .{
                 .data = 0, //w.data * x.data,
@@ -139,10 +139,10 @@ pub const NeuronActivation = struct {
         for (self.x) |x| {
             x.print();
         }
-        for (self.prod) |p| {
+        for (self.prod) |*p| {
             p.print();
         }
-        for (self.sum) |s| {
+        for (self.sum) |*s| {
             s.print();
         }
         self.out.print();
@@ -258,8 +258,9 @@ pub const Layer = struct {
     id: u64,
     neurons: []Neuron,
     activations: []NeuronActivation,
+    outs: []*Value,
 
-    pub fn init(a: Allocator, nin: u32, nout: u32, inputs: []Value) !Layer {
+    pub fn init(a: Allocator, nin: u32, nout: u32, inputs: []*Value) !Layer {
         var self: Layer = undefined;
         self.id = getLayerId();
         self.neurons = try a.alloc(Neuron, nout);
@@ -267,6 +268,10 @@ pub const Layer = struct {
         for (0..nout) |i| {
             self.neurons[i] = try Neuron.init(a, nin);
             self.activations[i] = try NeuronActivation.init(a, nin, &self.neurons[i], inputs);
+        }
+        self.outs = try a.alloc(*Value, nout);
+        for (self.activations, 0..) |*act, i| {
+            self.outs[i] = &act.out;
         }
         return self;
     }
@@ -276,6 +281,7 @@ pub const Layer = struct {
             neuron.deinit(a);
             activation.deinit(a);
         }
+        a.free(self.outs);
         a.free(self.activations);
         a.free(self.neurons);
     }
@@ -290,8 +296,8 @@ pub const Layer = struct {
 
     pub fn printOuts(self: *Layer) void {
         std.debug.print("type=Layer id={d}\n", .{self.id});
-        for (self.activations) |*act| {
-            act.out.print();
+        for (self.outs) |out| {
+            out.print();
         }
     }
 
@@ -302,46 +308,6 @@ pub const Layer = struct {
     }
 };
 
-// pub const Layer = struct {
-//     id: u8,
-//     allocator: std.mem.Allocator,
-//     neurons: []Neuron,
-//     outs: []Value,
-//
-//     pub fn init(allocator: std.mem.Allocator, nin: u8, nout: u8) !Layer {
-//         const id = getLayerId();
-//         const neurons = try allocator.alloc(Neuron, nout);
-//         const outs = try allocator.alloc(Value, nout);
-//         for (0..nout) |i| {
-//             neurons[i] = try Neuron.init(allocator, nin, id);
-//             //std.debug.print("Layer.init: ", .{});
-//             //neurons[i].print();
-//         }
-//         return Layer{
-//             .id = l_id,
-//             .allocator = allocator,
-//             .neurons = neurons,
-//             .outs = outs,
-//         };
-//     }
-//
-//     pub fn deinit(self: *const Layer) void {
-//         self.allocator.free(self.outs);
-//         for (self.neurons) |n| {
-//             n.deinit();
-//         }
-//         self.allocator.free(self.neurons);
-//     }
-//
-//     // call - builds neurons structures, calculates output activation value (result) and stores into self.outs
-//     pub fn call(self: *const Layer, inputs: []Value) ![]Value {
-//         for (self.neurons, 0..) |neuron, i| {
-//             self.outs[i] = try neuron.call(inputs);
-//         }
-//         return self.outs;
-//     }
-// };
-//
 // pub const MLP = struct {
 //     allocator: std.mem.Allocator,
 //     layers: []Layer = undefined,
@@ -387,35 +353,52 @@ pub const Layer = struct {
 // };
 
 pub const Inputs = struct {
-    values: []Value,
+    values: []*Value,
 
     pub fn init(a: Allocator, nin: u32) !Inputs {
         var self: Inputs = undefined;
-        self.values = try a.alloc(Value, nin);
+        self.values = try a.alloc(*Value, nin);
         var buf: [16]u8 = undefined;
         for (self.values, 0..) |*v, i| {
             const label = try fmt.bufPrint(&buf, "x{d}", .{i + 1});
-            v.* = try Value.init(a, 0, label);
+            const allocated_value = try a.create(Value);
+            const val = try Value.init(a, 0, label);
+            allocated_value.* = val;
+            v.* = allocated_value;
         }
         return self;
     }
 
     pub fn deinit(self: *Inputs, a: Allocator) void {
-        for (self.values) |*v| {
+        for (self.values) |v| {
             v.deinit(a);
+            a.destroy(v);
         }
         a.free(self.values);
     }
 
     pub fn set(self: *Inputs, data: []const f32) void {
         assert(self.values.len == data.len);
-        for (self.values, data) |*v, d| {
+        for (self.values, data) |v, d| {
             v.data = d;
         }
     }
 };
 
-fn activateNeuron(nin: u32, n: *Neuron, na: *NeuronActivation) f32 {
+pub const MLP = struct {
+    layers: []Layer,
+
+    pub fn init(a: Allocator, nin: u32, nouts: []u32, inputs: *Inputs) !MLP {
+        var self: MLP = undefined;
+        self.layers = try a.alloc(Layer, nouts.len);
+        self.layers[0] = try Layer.init(a, nin, nouts[0], inputs);
+        for (1..nouts.len) |i| {
+            self.layers[i] = Layer.init(a, nouts[i - 1], nouts[i], self.layers[i - 1].outs);
+        }
+    }
+};
+
+fn activateNeuronHelper(nin: u32, n: *Neuron, na: *NeuronActivation) f32 {
     var acc: f32 = 0;
     for (0..nin) |i| {
         acc += na.x[i].data * n.weights[i].data;
@@ -475,16 +458,16 @@ test "neuron_activation_init" {
     na1.print();
 
     // calc tanh
-    const expected_1 = activateNeuron(nin, &n1, &na1);
+    const expected_1 = activateNeuronHelper(nin, &n1, &na1);
     try t.expectEqual(expected_1, na1.out.data);
 
-    for (inputs.values) |*x| {
+    for (inputs.values) |x| {
         x.data += 0.2;
     }
     na1.call();
     na1.print();
     // calc tanh
-    const expected_2 = activateNeuron(nin, &n1, &na1);
+    const expected_2 = activateNeuronHelper(nin, &n1, &na1);
     try t.expectEqual(expected_2, na1.out.data);
 }
 
