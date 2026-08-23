@@ -30,6 +30,22 @@ pub const Value = struct {
         a.free(self.prev);
     }
 
+    pub fn backward(self: *Value) void {
+        if (self.op == .tanh) {
+            self.prev[0].grad += (1 - std.math.pow(f32, self.data, 2)) * self.grad;
+            return;
+        }
+        if (self.op == .mul) {
+            self.prev[0].grad += self.prev[1].data * self.grad;
+            self.prev[1].grad += self.prev[0].data * self.grad;
+        }
+        if (self.op == .add) {
+            self.prev[0].grad += self.grad;
+            self.prev[1].grad += self.grad;
+            return;
+        }
+    }
+
     pub fn print(self: *Value) void {
         std.debug.print("type=Value data={d:.4} grad={d} label={s} op={s})\n", .{ self.data, self.grad, self.label, @tagName(self.op) });
     }

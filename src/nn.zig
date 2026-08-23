@@ -5,7 +5,6 @@ const fmt = std.fmt;
 const t = std.testing;
 const testHeader = @import("helpers.zig").testHeader;
 const Value = @import("engine.zig").Value;
-const value = @import("engine.zig").value;
 
 var rand_impl = std.Random.DefaultPrng.init(512);
 var n_id: u64 = 1;
@@ -24,15 +23,16 @@ pub const Neuron = struct {
 
         for (weights, 0..) |*w, i| {
             const w_label = try fmt.bufPrint(&buf, "n{d}_w{d}", .{ id, i + 1 });
-            const f32_value = rand_impl.random().float(f32);
-            w.* = try Value.init(a, f32_value, w_label);
+            const w_value = rand_impl.random().float(f32) * 2 - 1; // random [-1 .. 1]
+            w.* = try Value.init(a, w_value, w_label);
         }
 
         const b_label = try fmt.bufPrint(&buf, "n{d}_b", .{id});
+        const b_value = rand_impl.random().float(f32) * 2 - 1; // random [-1 .. 1]
 
         return Neuron{
             .weights = weights,
-            .bias = try Value.init(a, 0.2, b_label),
+            .bias = try Value.init(a, b_value, b_label),
             .id = id,
         };
     }
@@ -134,6 +134,16 @@ pub const NeuronActivation = struct {
         a.free(self.prod);
     }
 
+    pub fn backward(self: *NeuronActivation) void {
+        self.out.backward();
+        for (0..self.sum.len) |i| {
+            self.sum[self.sum.len - i - 1].backward();
+        }
+        for (0..self.prod.len) |j| {
+            self.prod[self.prod.len - j - 1].backward();
+        }
+    }
+
     pub fn print(self: *NeuronActivation) void {
         std.debug.print("type=NeuronActivation id={d}\n", .{self.id});
         for (self.x) |x| {
@@ -144,6 +154,14 @@ pub const NeuronActivation = struct {
         }
         for (self.sum) |*s| {
             s.print();
+        }
+        self.out.print();
+    }
+
+    pub fn printCompact(self: *NeuronActivation) void {
+        std.debug.print("type=NeuronActivation id={d}\n", .{self.id});
+        for (self.x) |x| {
+            x.print();
         }
         self.out.print();
     }
@@ -286,11 +304,25 @@ pub const Layer = struct {
         a.free(self.neurons);
     }
 
+    pub fn backward(self: *Layer) void {
+        for (0..self.activations.len) |i| {
+            self.activations[self.activations.len - i - 1].backward();
+        }
+    }
+
     pub fn print(self: *Layer) void {
         std.debug.print("type=Layer id={d}\n", .{self.id});
         for (self.neurons, self.activations) |*n, *act| {
             n.print();
             act.print();
+        }
+    }
+
+    pub fn printCompact(self: *Layer) void {
+        std.debug.print("type=Layer id={d}\n", .{self.id});
+        for (self.neurons, self.activations) |*n, *act| {
+            n.print();
+            act.printCompact();
         }
     }
 
@@ -388,13 +420,51 @@ pub const Inputs = struct {
 pub const MLP = struct {
     layers: []Layer,
 
-    pub fn init(a: Allocator, nin: u32, nouts: []u32, inputs: *Inputs) !MLP {
+    pub fn init(a: Allocator, nin: u32, nouts: []const u32, inputs: *Inputs) !MLP {
         var self: MLP = undefined;
         self.layers = try a.alloc(Layer, nouts.len);
-        self.layers[0] = try Layer.init(a, nin, nouts[0], inputs);
+        self.layers[0] = try Layer.init(a, nin, nouts[0], inputs.values);
         for (1..nouts.len) |i| {
-            self.layers[i] = Layer.init(a, nouts[i - 1], nouts[i], self.layers[i - 1].outs);
+            self.layers[i] = try Layer.init(a, nouts[i - 1], nouts[i], self.layers[i - 1].outs);
         }
+        return self;
+    }
+
+    pub fn deinit(self: *MLP, a: Allocator) void {
+        for (self.layers) |*layer| {
+            layer.deinit(a);
+        }
+        a.free(self.layers);
+    }
+
+    pub fn call(self: *MLP) void {
+        for (self.layers) |*layer| {
+            layer.call();
+        }
+    }
+
+    pub fn initGrad(self: *MLP, value: f32) void {
+        for (self.layers[self.layers.len - 1].activations) |*a| {
+            a.*.out.grad = value;
+        }
+    }
+
+    pub fn resetGrad(self: *MLP) void {
+        _ = self;
+    }
+
+    pub fn backward(self: *MLP) void {
+        self.layers[self.layers.len - 1].backward();
+    }
+
+    pub fn print(self: *MLP) void {
+        for (self.layers) |*layer| {
+            layer.printCompact();
+        }
+    }
+
+    pub fn printOuts(self: *MLP) void {
+        self.layers[self.layers.len - 1].outs[0].print();
     }
 };
 
@@ -419,7 +489,6 @@ test "neuron_init" {
         n2.deinit(a);
     }
 
-    try t.expectEqual(0.2, n1.bias.data);
     try t.expectEqual(4, n1.weights.len);
     try t.expectEqual(3, n2.weights.len);
 
@@ -468,7 +537,7 @@ test "neuron_activation_init" {
     na1.print();
     // calc tanh
     const expected_2 = activateNeuronHelper(nin, &n1, &na1);
-    try t.expectEqual(expected_2, na1.out.data);
+    try t.expectApproxEqAbs(@as(f32, expected_2), na1.out.data, 0.0001);
 }
 
 test "layer_init" {
@@ -508,4 +577,66 @@ test "layer_call" {
         layer.call();
         layer.printOuts();
     }
+}
+
+test "mlp_call" {
+    testHeader(@src());
+    l_id = 1;
+    n_id = 1;
+    const a = t.allocator;
+    const nin: u32 = 3;
+    const nouts: []const u32 = &[_]u32{ 4, 4, 1 };
+    const data_set = [_]f32{
+        -0.2, 0.1,  0.25,
+        0.5,  0,    -1,
+        0.1,  -0.3, 0.8,
+    };
+
+    var inputs = try Inputs.init(a, nin);
+    defer inputs.deinit(a);
+
+    var mlp = try MLP.init(a, nin, nouts, &inputs);
+    defer mlp.deinit(a);
+    for (0..data_set.len / nin) |b| {
+        inputs.set(data_set[b * nin .. b * nin + nin]);
+        std.debug.print("input={d}\n", .{b});
+        mlp.call();
+        mlp.printOuts();
+    }
+}
+
+test "mlp_backward" {
+    testHeader(@src());
+    l_id = 1;
+    n_id = 1;
+    const a = t.allocator;
+    const nin: u32 = 3;
+    const nouts: []const u32 = &[_]u32{ 4, 4, 1 };
+    const data_set = [_]f32{
+        2.0, 3.0,  -1.0,
+        3.0, -1.0, 0.5,
+        0.5, 1.0,  1.0,
+        1.0, 1.0,  -1.0,
+    };
+
+    const ys = [_]f32{ 1.0, -1.0, -1.0, 1.0 };
+
+    var inputs = try Inputs.init(a, nin);
+    defer inputs.deinit(a);
+
+    var mlp = try MLP.init(a, nin, nouts, &inputs);
+    defer mlp.deinit(a);
+
+    mlp.initGrad(1.0);
+
+    for (0..data_set.len / nin) |b| {
+        inputs.set(data_set[b * nin .. b * nin + nin]);
+        std.debug.print("input={d}\n", .{b + 1});
+        mlp.call();
+        mlp.backward();
+        mlp.printOuts();
+    }
+    //mlp.print();
+
+    _ = ys;
 }
